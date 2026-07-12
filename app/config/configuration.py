@@ -7,7 +7,7 @@ class Config:
     def __init__(self):
         self.CORS_ORIGINS = self.get_required_env("CORS_ORIGINS")
         self.HUGGINGFACE_EMBEDDING_MODEL = self.get_required_env("HUGGINGFACE_EMBEDDING_MODEL")
-        self.GROQ_API_KEY = self.get_required_env("GROQ_API_KEY")
+        self.GROQ_API_KEY = self.get_required_env("GOOGLE_API_KEY")
         self.LLM_MODEL = self.get_required_env("LLM_MODEL")
         self.VECTOR_STORE_PATH = self.get_required_env("VECTOR_STORE_PATH")
         self.VECTOR_STORE_DIR = self.get_required_env("VECTOR_STORE_DIR")    
