@@ -1,0 +1,8 @@
+{
+  "documents": {
+    "a65d57cf-73f1-4275-a9b7-0956d70f326a": {
+      "vector_store_path": "app/data/sessions/738d445a-d6a9-4f2f-9513-e7c938ae105e/vectorstores/faiss_index_a65d57cf-73f1-4275-a9b7-0956d70f326a",
+      "description": "Emirates multi-leg itinerary with fare, tax, payment, terminal, and local-time details."
+    }
+  }
+}

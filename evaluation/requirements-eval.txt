@@ -1,0 +1,4 @@
+# The repository already contains requests and PyMuPDF in its main environment.
+# This file documents the only direct dependencies used by the black-box isolation script.
+requests
+PyMuPDF

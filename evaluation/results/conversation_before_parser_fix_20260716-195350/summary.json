@@ -1,0 +1,214 @@
+{
+  "generated_at_utc": "2026-07-17T00:37:16Z",
+  "git_commit": "fc03786b1992d0a0f8c4e4f9283ca2bffbdc6bd5",
+  "environment": {
+    "llm_model": "gemini-3.5-flash",
+    "chunk_size": "1000",
+    "chunk_overlap": "200",
+    "embedding_model": "all-MiniLM-L6-v2"
+  },
+  "by_mode": {
+    "baseline": {
+      "cases": 11,
+      "routing": {
+        "accuracy": 0.36363636363636365,
+        "macro_f1": 0.17777777777777778,
+        "per_label": {
+          "DOCUMENT": {
+            "precision": 0.36363636363636365,
+            "recall": 1.0,
+            "f1": 0.5333333333333333,
+            "support": 4,
+            "tp": 4,
+            "fp": 7,
+            "fn": 0
+          },
+          "FOLLOW_UP_DOCUMENT": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 4,
+            "tp": 0,
+            "fp": 0,
+            "fn": 4
+          },
+          "CONVERSATION_HISTORY": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 3,
+            "tp": 0,
+            "fp": 0,
+            "fn": 3
+          }
+        }
+      },
+      "mean_context_recall": 1.0,
+      "mean_context_precision": 1.0,
+      "mean_fact_accuracy": 0.7272727272727273,
+      "retrieval_bypass_rate": 0.0,
+      "latency_ms": {
+        "mean": 2861.2893727278624,
+        "p50": 2346.873400005279,
+        "p95": 4883.06470000316
+      },
+      "fact_accuracy_by_category": {
+        "DOCUMENT": 1.0,
+        "FOLLOW_UP_DOCUMENT": 0.75,
+        "CONVERSATION_HISTORY": 0.3333333333333333
+      },
+      "context_recall_by_category": {
+        "DOCUMENT": 1.0,
+        "FOLLOW_UP_DOCUMENT": 1.0
+      },
+      "latency_by_category_ms": {
+        "DOCUMENT": 2263.9164499996696,
+        "FOLLOW_UP_DOCUMENT": 3970.350600000529,
+        "CONVERSATION_HISTORY": 2179.038300001897
+      }
+    },
+    "full": {
+      "cases": 11,
+      "routing": {
+        "accuracy": 0.6363636363636364,
+        "macro_f1": 0.5555555555555555,
+        "per_label": {
+          "DOCUMENT": {
+            "precision": 0.5,
+            "recall": 1.0,
+            "f1": 0.6666666666666666,
+            "support": 4,
+            "tp": 4,
+            "fp": 4,
+            "fn": 0
+          },
+          "FOLLOW_UP_DOCUMENT": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 4,
+            "tp": 0,
+            "fp": 0,
+            "fn": 4
+          },
+          "CONVERSATION_HISTORY": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "support": 3,
+            "tp": 3,
+            "fp": 0,
+            "fn": 0
+          }
+        }
+      },
+      "mean_context_recall": 1.0,
+      "mean_context_precision": 1.0,
+      "mean_fact_accuracy": 0.9090909090909091,
+      "retrieval_bypass_rate": 0.2727272727272727,
+      "latency_ms": {
+        "mean": 4258.0317727280835,
+        "p50": 4187.98219999735,
+        "p95": 7198.901249998016
+      },
+      "fact_accuracy_by_category": {
+        "DOCUMENT": 1.0,
+        "FOLLOW_UP_DOCUMENT": 0.75,
+        "CONVERSATION_HISTORY": 1.0
+      },
+      "context_recall_by_category": {
+        "DOCUMENT": 1.0,
+        "FOLLOW_UP_DOCUMENT": 1.0
+      },
+      "latency_by_category_ms": {
+        "DOCUMENT": 2190.94915000278,
+        "FOLLOW_UP_DOCUMENT": 6302.560024998456,
+        "CONVERSATION_HISTORY": 4288.1042666679905
+      }
+    },
+    "router_only": {
+      "cases": 11,
+      "routing": {
+        "accuracy": 0.6363636363636364,
+        "macro_f1": 0.5555555555555555,
+        "per_label": {
+          "DOCUMENT": {
+            "precision": 0.5,
+            "recall": 1.0,
+            "f1": 0.6666666666666666,
+            "support": 4,
+            "tp": 4,
+            "fp": 4,
+            "fn": 0
+          },
+          "FOLLOW_UP_DOCUMENT": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 4,
+            "tp": 0,
+            "fp": 0,
+            "fn": 4
+          },
+          "CONVERSATION_HISTORY": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "support": 3,
+            "tp": 3,
+            "fp": 0,
+            "fn": 0
+          }
+        }
+      },
+      "mean_context_recall": 1.0,
+      "mean_context_precision": 1.0,
+      "mean_fact_accuracy": 0.8181818181818182,
+      "retrieval_bypass_rate": 0.2727272727272727,
+      "latency_ms": {
+        "mean": 4219.111781819348,
+        "p50": 3745.331099999021,
+        "p95": 7130.940450002527
+      },
+      "fact_accuracy_by_category": {
+        "DOCUMENT": 1.0,
+        "FOLLOW_UP_DOCUMENT": 0.5,
+        "CONVERSATION_HISTORY": 1.0
+      },
+      "context_recall_by_category": {
+        "DOCUMENT": 1.0,
+        "FOLLOW_UP_DOCUMENT": 1.0
+      },
+      "latency_by_category_ms": {
+        "DOCUMENT": 2175.854700000855,
+        "FOLLOW_UP_DOCUMENT": 6306.980850002219,
+        "CONVERSATION_HISTORY": 4159.62913333351
+      }
+    }
+  },
+  "pairwise": {
+    "full_vs_baseline_fact_accuracy": {
+      "wins": 2,
+      "ties": 9,
+      "losses": 0,
+      "win_rate_excluding_ties": 1.0,
+      "win_rate_including_ties_as_half": 0.5909090909090909
+    }
+  },
+  "configuration": {
+    "cases_path": "evaluation\\datasets\\conversation_cases.jsonl",
+    "manifest_path": "evaluation\\datasets\\documents_manifest.json",
+    "modes": [
+      "baseline",
+      "router_only",
+      "full"
+    ],
+    "top_k": 5,
+    "repeats": 1,
+    "evidence_token_recall": 0.7,
+    "request_interval": 2.0,
+    "max_retries": 8,
+    "retry_base_seconds": 15.0,
+    "checkpoint_path": "evaluation\\results\\conversation\\progress.jsonl"
+  }
+}

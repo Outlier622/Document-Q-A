@@ -1,0 +1,136 @@
+{
+  "generated_at_utc": "2026-07-17T00:54:39Z",
+  "git_commit": "fc03786b1992d0a0f8c4e4f9283ca2bffbdc6bd5",
+  "environment": {
+    "llm_model": "gemini-3.5-flash",
+    "chunk_size": "1000",
+    "chunk_overlap": "200",
+    "embedding_model": "all-MiniLM-L6-v2"
+  },
+  "by_mode": {
+    "full": {
+      "cases": 2,
+      "routing": {
+        "accuracy": 1.0,
+        "macro_f1": 0.3333333333333333,
+        "per_label": {
+          "DOCUMENT": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 0,
+            "tp": 0,
+            "fp": 0,
+            "fn": 0
+          },
+          "FOLLOW_UP_DOCUMENT": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "support": 2,
+            "tp": 2,
+            "fp": 0,
+            "fn": 0
+          },
+          "CONVERSATION_HISTORY": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 0,
+            "tp": 0,
+            "fp": 0,
+            "fn": 0
+          }
+        }
+      },
+      "mean_context_recall": 1.0,
+      "mean_context_precision": 1.0,
+      "mean_fact_accuracy": 1.0,
+      "retrieval_bypass_rate": 0.0,
+      "latency_ms": {
+        "mean": 7192.070249995595,
+        "p50": 7192.070249995595,
+        "p95": 7684.2523049966985
+      },
+      "fact_accuracy_by_category": {
+        "FOLLOW_UP_DOCUMENT": 1.0
+      },
+      "context_recall_by_category": {
+        "FOLLOW_UP_DOCUMENT": 1.0
+      },
+      "latency_by_category_ms": {
+        "FOLLOW_UP_DOCUMENT": 7192.070249995595
+      }
+    },
+    "router_only": {
+      "cases": 2,
+      "routing": {
+        "accuracy": 1.0,
+        "macro_f1": 0.3333333333333333,
+        "per_label": {
+          "DOCUMENT": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 0,
+            "tp": 0,
+            "fp": 0,
+            "fn": 0
+          },
+          "FOLLOW_UP_DOCUMENT": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "support": 2,
+            "tp": 2,
+            "fp": 0,
+            "fn": 0
+          },
+          "CONVERSATION_HISTORY": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "support": 0,
+            "tp": 0,
+            "fp": 0,
+            "fn": 0
+          }
+        }
+      },
+      "mean_context_recall": 1.0,
+      "mean_context_precision": 1.0,
+      "mean_fact_accuracy": 0.5,
+      "retrieval_bypass_rate": 0.0,
+      "latency_ms": {
+        "mean": 5107.530449997284,
+        "p50": 5107.530449997284,
+        "p95": 6175.613954997243
+      },
+      "fact_accuracy_by_category": {
+        "FOLLOW_UP_DOCUMENT": 0.5
+      },
+      "context_recall_by_category": {
+        "FOLLOW_UP_DOCUMENT": 1.0
+      },
+      "latency_by_category_ms": {
+        "FOLLOW_UP_DOCUMENT": 5107.530449997284
+      }
+    }
+  },
+  "pairwise": {},
+  "configuration": {
+    "cases_path": "evaluation\\datasets\\day1_cases.jsonl",
+    "manifest_path": "evaluation\\datasets\\documents_manifest.json",
+    "modes": [
+      "router_only",
+      "full"
+    ],
+    "top_k": 5,
+    "repeats": 1,
+    "evidence_token_recall": 0.7,
+    "request_interval": 2.0,
+    "max_retries": 8,
+    "retry_base_seconds": 15.0,
+    "checkpoint_path": "evaluation\\results\\router_fix_smoke\\progress.jsonl"
+  }
+}
