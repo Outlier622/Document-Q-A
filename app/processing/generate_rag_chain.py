@@ -31,7 +31,7 @@ def initialize_llm():
             model=llm_model,
             google_api_key=google_api_key,
             temperature=0,
-            max_output_tokens=1024,
+            max_output_tokens=2048,
         )
 
     except Exception as e:

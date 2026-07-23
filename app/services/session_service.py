@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -22,6 +23,34 @@ def _connect() -> sqlite3.Connection:
     return connection
 
 
+def _ensure_message_metadata_columns(
+    connection: sqlite3.Connection,
+) -> None:
+    """Add assistant metadata columns to an existing messages table."""
+    existing_columns = {
+        row["name"]
+        for row in connection.execute(
+            "PRAGMA table_info(messages)"
+        ).fetchall()
+    }
+
+    column_statements = {
+        "query_category": "ALTER TABLE messages ADD COLUMN query_category TEXT",
+        "source_type": "ALTER TABLE messages ADD COLUMN source_type TEXT",
+        "web_search_used": (
+            "ALTER TABLE messages ADD COLUMN web_search_used "
+            "INTEGER NOT NULL DEFAULT 0"
+        ),
+        "web_sources_json": (
+            "ALTER TABLE messages ADD COLUMN web_sources_json TEXT"
+        ),
+    }
+
+    for column_name, statement in column_statements.items():
+        if column_name not in existing_columns:
+            connection.execute(statement)
+
+
 def initialize_session_database() -> None:
     with _connect() as connection:
         connection.executescript(
@@ -43,6 +72,10 @@ def initialize_session_database() -> None:
                 document_id TEXT,
                 query TEXT NOT NULL,
                 answer TEXT NOT NULL,
+                query_category TEXT,
+                source_type TEXT,
+                web_search_used INTEGER NOT NULL DEFAULT 0,
+                web_sources_json TEXT,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (session_id)
                     REFERENCES sessions(session_id)
@@ -57,6 +90,22 @@ def initialize_session_database() -> None:
             """
         )
 
+        # Existing app.db files were created before these nullable metadata
+        # fields existed. Add them without deleting or rebuilding the database.
+        _ensure_message_metadata_columns(connection)
+
+
+def _parse_web_sources(raw_value: str | None) -> list[dict]:
+    if not raw_value:
+        return []
+
+    try:
+        parsed = json.loads(raw_value)
+    except (TypeError, json.JSONDecodeError):
+        return []
+
+    return parsed if isinstance(parsed, list) else []
+
 
 def _build_session_payload(
     connection: sqlite3.Connection,
@@ -64,7 +113,15 @@ def _build_session_payload(
 ) -> dict:
     message_rows = connection.execute(
         """
-        SELECT document_id, query, answer, created_at
+        SELECT
+            document_id,
+            query,
+            answer,
+            query_category,
+            source_type,
+            web_search_used,
+            web_sources_json,
+            created_at
         FROM messages
         WHERE session_id = ?
         ORDER BY id ASC
@@ -72,14 +129,24 @@ def _build_session_payload(
         (session_row["session_id"],),
     ).fetchall()
 
-    chat_history = [
-        {
+    chat_history = []
+
+    for row in message_rows:
+        history_item = {
             "document_id": row["document_id"],
             "query": row["query"],
             "answer": row["answer"],
+            "web_search_used": bool(row["web_search_used"]),
+            "web_sources": _parse_web_sources(row["web_sources_json"]),
         }
-        for row in message_rows
-    ]
+
+        if row["query_category"] is not None:
+            history_item["query_category"] = row["query_category"]
+
+        if row["source_type"] is not None:
+            history_item["source_type"] = row["source_type"]
+
+        chat_history.append(history_item)
 
     return {
         "session_id": session_row["session_id"],
@@ -175,11 +242,11 @@ def set_session_document(
     document_id: str,
     uploaded_filename: str,
 ) -> None:
-    """
-    Attach the newly uploaded document to the active session.
+    """Attach a new active document while preserving independent turns.
 
-    The application currently supports one active document per conversation,
-    so uploading a new PDF clears previous chat messages for that session.
+    The application supports one active PDF per conversation. Messages tied to
+    a previous PDF are removed so they cannot affect the new document. General
+    and web-only assistant turns have document_id NULL and remain available.
     """
     now = _utc_now()
 
@@ -204,18 +271,30 @@ def set_session_document(
             raise ValueError("Active session not found")
 
         connection.execute(
-            "DELETE FROM messages WHERE session_id = ?",
+            """
+            DELETE FROM messages
+            WHERE session_id = ?
+              AND document_id IS NOT NULL
+            """,
             (session_id,),
         )
 
 
 def save_message(
     session_id: str,
-    document_id: str,
+    document_id: str | None,
     query: str,
     answer: str,
+    query_category: str | None = None,
+    source_type: str | None = None,
+    web_search_used: bool = False,
+    web_sources: list[dict] | None = None,
 ) -> None:
     now = _utc_now()
+    serialized_sources = json.dumps(
+        web_sources or [],
+        ensure_ascii=False,
+    )
 
     with _connect() as connection:
         active_row = connection.execute(
@@ -237,15 +316,23 @@ def save_message(
                 document_id,
                 query,
                 answer,
+                query_category,
+                source_type,
+                web_search_used,
+                web_sources_json,
                 created_at
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session_id,
                 document_id,
                 query,
                 answer,
+                query_category,
+                source_type,
+                int(web_search_used),
+                serialized_sources,
                 now,
             ),
         )

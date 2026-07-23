@@ -5,15 +5,15 @@ from fastapi.responses import JSONResponse
 
 from app.core.logger import configure_logging
 from app.schemas.rag_schema import (
+    AssistantQuerySchema,
     EndSessionSchema,
     QueryOnlySchema,
-    QueryWithDocumentIdSchema,
     QueryWithReferenceSchema,
     StartOrResumeSessionSchema,
 )
 from app.services.rag_service import (
     generate_vector_store_for_pdf,
-    query_rag_by_document,
+    query_assistant,
     query_rag_with_reference,
     query_rag_without_reference,
 )
@@ -30,7 +30,7 @@ logger = configure_logging("RAG_ROUTE")
 
 @router.get("/")
 async def get_index():
-    return {"message": "Welcome to the Document Question Answering API!"}
+    return {"message": "Welcome to the document-aware assistant API!"}
 
 
 @router.post("/query")
@@ -68,7 +68,6 @@ async def end_anonymous_session(
             client_id=request.client_id,
             session_id=session_id,
         )
-
         return JSONResponse(content=result)
 
     except ValueError as error:
@@ -114,14 +113,20 @@ async def upload_pdf(
     )
 
 
-@router.post("/query-by-document")
-async def query_by_document(request: QueryWithDocumentIdSchema):
+@router.post("/assistant/query")
+async def assistant_query(request: AssistantQuerySchema):
     logger.info(
-        f"Route received query-by-document request. "
-        f"session_id={request.session_id}, "
+        f"Assistant query received. session_id={request.session_id}, "
         f"document_id={request.document_id}, "
+        f"assistant_mode={request.assistant_mode}, "
+        f"web_search_enabled={request.web_search_enabled}, "
         f"query={request.query}, "
         f"chat_history_length={len(request.chat_history)}"
     )
+    return await query_assistant(request)
 
-    return await query_rag_by_document(request)
+
+# Keep the original endpoint working for existing clients and evaluation scripts.
+@router.post("/query-by-document")
+async def query_by_document(request: AssistantQuerySchema):
+    return await assistant_query(request)
