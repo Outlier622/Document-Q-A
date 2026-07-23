@@ -1,368 +1,417 @@
-# Changes
+Document Q&A System
 
-This file records the main changes made while setting up and improving:
+The Document Q&A System is a document-centered conversational assistant for users who need to upload a PDF, ask grounded questions about its contents, continue with context-dependent follow-up questions, review earlier conversation history, and optionally supplement document analysis with current web information.
 
-```text
+The project extends a basic single-turn PDF RAG backend into a multi-source assistant. It can operate as a strict document question-answering system or as a broader assistant that chooses among the uploaded document, conversation history, general model knowledge, and Google Search grounding.
+
+Original project:
+
 https://github.com/FaisalAhmedBijoy/Document-QA-RAG-System-FastAPI
-```
 
-## Modified Files
+What This Project Is For
 
-```text
-requirements.txt
-streamlit.py
-app/schemas/rag_schema.py
-app/routes/rag_route.py
-app/services/rag_service.py
-```
+The system supports workflows that require more than one-off PDF retrieval:
 
-## Added Files
+Ask factual questions whose answers must come from an uploaded PDF.
 
-```text
-app/services/session_service.py
-```
+Ask follow-up questions that depend on earlier conversation context.
 
-The project also creates or uses the following local/runtime files and folders:
+Review, summarize, or compare previous questions and answers.
 
-```text
-.env
-app/data/app.db
-app/data/sessions/
-```
+Ask general questions without forcing every request through document retrieval.
 
-`app/data/app.db` is generated at runtime by the SQL-based session service.
-`app/data/sessions/` stores per-session PDFs, extracted text files, and FAISS vector stores.
+Combine document evidence with general explanation or advice.
 
----
+Verify or update document content with current web information.
 
-## 1. Environment and Dependency Fixes
+Resume an unfinished anonymous conversation after restarting the application.
 
-Added missing environment configuration and runtime dependencies required for local setup.
+The system keeps document facts, conversation history, general knowledge, and web sources separate so users can understand where an answer came from.
 
-Configured required variables such as:
+Key Features
 
-```env
-CHUNK_SIZE=1000
-CHUNK_OVERLAP=200
-HUGGINGFACE_EMBEDDING_MODEL=all-MiniLM-L6-v2
-VECTOR_STORE_PATH=app/data/vectorstores/faiss_index_<document_id>
-GROQ_API_KEY=<your_groq_api_key>
-```
+Document-grounded Q&A
 
-Updated `requirements.txt` with missing packages, including:
+Users can upload one PDF per active conversation. The backend extracts text, creates a session-scoped FAISS vector store, retrieves relevant chunks, and generates an answer grounded in the uploaded document.
 
-```txt
-PyMuPDF
-pdfplumber==0.11.4
-Pillow<12
-bangla_pdf_ocr
-python-dotenv
-```
+Follow-up question rewriting
 
-These changes make the project easier to run locally and reduce setup friction.
+Recent conversation turns are used to rewrite incomplete follow-up questions into standalone document-retrieval queries.
 
----
+User: What insurance coverage does the lease require?
+User: What about the second option?
 
-## 2. Streamlit PDF Upload Flow
+The second question is rewritten into a complete document query before retrieval.
 
-Updated `streamlit.py` to provide a complete frontend document QA workflow.
+Conversation-history Q&A
 
-The frontend now supports:
+The system can answer questions about earlier turns without searching the PDF.
 
-```text
-Upload PDF
-→ Send PDF to FastAPI backend
-→ Receive document_id
-→ Ask questions about that document
-→ Receive document-grounded answers
-```
-
-The Streamlit app now calls:
-
-```text
-POST /rag/upload-document-pdf
-POST /rag/query-by-document
-```
-
-and warns users if they try to ask questions before uploading a PDF.
-
----
-
-## 3. LLM Backend Update
-
-Switched the LLM backend from Groq to Gemini and increased the maximum output token limit.
-
-This was done to reduce answer truncation and improve response completeness during document QA.
-
----
-
-## 4. Document-Specific Querying
-
-Updated:
-
-```text
-app/routes/rag_route.py
-app/services/rag_service.py
-app/schemas/rag_schema.py
-```
-
-to support querying a specific uploaded document by `document_id`.
-
-The `/rag/query-by-document` endpoint now loads the FAISS vector store associated with the selected document instead of relying only on a default vector store.
-
----
-
-## 5. Follow-Up Question Support
-
-Added chat history support for follow-up questions.
-
-The frontend now sends previous query-answer turns to the backend. The backend uses recent conversation history to rewrite follow-up questions into standalone document queries before retrieval.
-
-Example:
-
-```text
-User: What vaccines are required?
-User: What about students over 22?
-```
-
-The second question can be rewritten into a standalone query about age-related vaccine exemptions.
-
----
-
-## 6. Conversation History Question Answering
-
-Added query classification in `app/services/rag_service.py`.
-
-Queries are now classified as:
-
-```text
-DOCUMENT
-FOLLOW_UP_DOCUMENT
-CONVERSATION_HISTORY
-```
-
-Routing behavior:
-
-```text
-DOCUMENT
-→ Direct RAG retrieval
-
-FOLLOW_UP_DOCUMENT
-→ Rewrite using recent history
-→ RAG retrieval
-
-CONVERSATION_HISTORY
-→ Answer from chat history
-→ Do not search the PDF
-```
-
-This allows the system to answer questions such as:
-
-```text
 What was my first question?
-What did I ask before the TB screening question?
-Which previous answer mentioned age 22?
+Which previous answer mentioned the insurance amount?
 Summarize what we discussed.
-```
 
----
+General assistant responses
 
-## 7. Full Chat History Sent to Backend
+In Assistant mode, users can ask general questions even when no PDF is uploaded. These questions bypass FAISS retrieval and are answered using the language model and relevant conversation context.
 
-Updated `streamlit.py` so the frontend sends the full chat history for the current document.
+Document and general-knowledge synthesis
 
-The backend then uses:
+For recommendations, evaluations, comparisons, or implications, the system can combine document evidence with general explanation or advice while keeping the two source types separate.
 
-```text
-Recent history
-→ Follow-up query rewriting
+Google Search grounding
 
-Full history
-→ Conversation-history question answering
-```
+When web search is enabled, current or explicitly online questions can use Gemini Google Search grounding. The frontend displays:
 
-This allows the system to answer history-related questions even after longer conversations.
+Whether web search was used.
 
----
+Source titles.
 
-## 8. Anonymous Multi-User Session Isolation
+Grounding redirect URLs.
 
-Added anonymous session isolation using UUID-based `session_id`.
+The answer text supported by each source.
 
-The frontend sends `session_id` with upload and query requests.
+The system also supports document-plus-web questions, such as checking whether information in an uploaded PDF is still current.
 
-Backend storage was changed from shared paths:
+Resumable anonymous conversations
 
-```text
-app/data/pdfs/
-app/data/texts/
-app/data/vectorstores/
-```
+Each browser receives a persistent client_id, and each active conversation receives a UUID-based session_id. PostgreSQL persistence restores:
 
-to session-scoped paths:
+Active session ID.
 
-```text
+Current document ID.
+
+Uploaded filename.
+
+Chat history.
+
+Query categories and source types.
+
+Web search status and citations.
+
+Session isolation
+
+Each session stores its resources under a dedicated path:
+
 app/data/sessions/{session_id}/pdfs/
 app/data/sessions/{session_id}/texts/
 app/data/sessions/{session_id}/vectorstores/
-```
 
-Each anonymous session now has its own PDF, extracted text, and FAISS vector store.
+This prevents PDFs, extracted text, FAISS indexes, chat histories, and web citations from being mixed across sessions.
 
----
+Response Modes
 
-## 9. Removed Unsafe Public Endpoints
+Assistant
 
-Removed or disabled public utility endpoints that could break session isolation:
+Assistant mode can use:
 
-```text
-GET /rag/list-vector-stores
-GET /rag/pdf/{document_id}
-```
+Document retrieval
+Conversation history
+General model knowledge
+Document + general knowledge
+Google Search
+Document + Google Search
 
-The main user workflow now depends only on upload and document-query endpoints.
+A PDF is optional in this mode.
 
-This avoids exposing global document IDs, vector stores, or PDFs across sessions.
+Strict Document
 
----
+Strict Document mode is limited to:
 
-## 10. Resumable Anonymous Conversations
+Uploaded document
+Conversation history
 
-Added persistent anonymous conversation recovery.
+A PDF is required. General knowledge and web search are not used to fill gaps in the document.
 
-New file:
+Query Routing
 
-```text
+Route
+
+Behavior
+
+DOCUMENT
+
+Retrieves from the uploaded PDF and answers from document evidence.
+
+FOLLOW_UP_DOCUMENT
+
+Rewrites the follow-up using recent history, then retrieves from the PDF.
+
+CONVERSATION_HISTORY
+
+Answers from prior turns and bypasses document retrieval.
+
+GENERAL
+
+Uses general model knowledge and relevant conversation context.
+
+HYBRID
+
+Combines uploaded-document evidence with general explanation or advice.
+
+WEB
+
+Uses Gemini Google Search grounding and returns web citations.
+
+DOCUMENT_AND_WEB
+
+Combines retrieved document evidence with current grounded web information.
+
+If a user asks about an uploaded document when no PDF is available, the system returns a document-unavailable response instead of inventing content.
+
+End-to-End Workflow
+
+Open Streamlit frontend
+→ Start or resume an anonymous active session
+→ Ask a general question or upload a PDF
+→ Classify the request by required source
+→ Retrieve from the PDF, history, model knowledge, web, or a combination
+→ Generate a source-aware answer
+→ Save the answer and metadata to database
+→ Restart the application and resume the active conversation
+→ End the conversation explicitly when finished
+
+Architecture
+
+Streamlit frontend
+        |
+        v
+FastAPI routes
+        |
+        v
+Source-aware query router
+        |
+        +--> Conversation history
+        +--> General Gemini response
+        +--> FAISS document retrieval
+        +--> Gemini Google Search grounding
+        +--> Document + general or document + web synthesis
+        |
+        v
+PostgreSQL session and message persistence
+
+Main technologies:
+
+Python
+FastAPI
+Streamlit
+Gemini API
+Gemini Google Search grounding
+FAISS
+all-MiniLM-L6-v2 embeddings
+PyMuPDF
+PostgreSQL
+LangChain
+
+Main Files
+
+frontend.py
+app/main.py
+app/routes/rag_route.py
+app/schemas/rag_schema.py
+app/services/rag_service.py
 app/services/session_service.py
-```
+app/processing/generate_rag_chain.py
+app/processing/generate_vector_db.py
+app/processing/generate_text_chunks.py
+app/processing/single_query_inference.py
 
-The SQL-backed session service stores:
+Runtime data:
 
-```text
-sessions
-messages
-```
+app/data/app.db
+app/data/sessions/
 
-Each anonymous browser receives a persistent `client_id`.
-Each conversation receives a `session_id` with one of two states:
+API Endpoints
 
-```text
-ACTIVE
-ENDED
-```
-
-The frontend starts by calling:
-
-```text
 POST /rag/sessions/start-or-resume
-```
-
-If the `client_id` has an `ACTIVE` session, the backend restores:
-
-```text
-session_id
-document_id
-uploaded_filename
-chat_history
-```
-
-If no active session exists, the backend creates a new one.
-
-The frontend also adds an explicit:
-
-```text
-End Conversation
-```
-
-button.
-
-Clicking it calls:
-
-```text
 POST /rag/sessions/{session_id}/end
-```
+POST /rag/upload-document-pdf
+POST /rag/assistant/query
+POST /rag/query-by-document
 
-and changes the session status from `ACTIVE` to `ENDED`.
+/rag/query-by-document remains available for backward compatibility.
 
----
+Local Setup
 
-## 11. Persistent Message Storage
+1. Create and activate the environment
 
-The backend now stores each query-answer pair in a SQL local database after successful responses.
+conda create -n rag_llm python=3.11
+conda activate rag_llm
 
-Stored message fields include:
+2. Install dependencies
 
-```text
+pip install -r requirements.txt
+
+The current Google Search grounding implementation is compatible with:
+
+langchain-google-genai==2.1.8
+google-ai-generativelanguage==0.6.18
+
+3. Configure environment variables
+
+Create a .env file using the variable names expected by app/config/configuration.py.
+
+GOOGLE_API_KEY=<your_google_api_key>
+CHUNK_SIZE=1000
+CHUNK_OVERLAP=200
+HUGGINGFACE_EMBEDDING_MODEL=all-MiniLM-L6-v2
+VECTOR_STORE_PATH=app/data/vectorstores/faiss_index
+
+Do not commit real API keys.
+
+4. Start the FastAPI backend
+
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+5. Start the Streamlit frontend
+
+In a second terminal:
+
+streamlit run frontend.py
+
+The frontend normally opens at:
+
+http://localhost:8501
+
+Google Search Grounding Test
+
+The standalone script can test search grounding without starting FastAPI or Streamlit:
+
+python test_google_search.py
+
+A successful response should include:
+
+WEB SEARCH USED: True
+
+and at least one entry under SOURCES.
+
+Grounding may return redirect URLs such as:
+
+https://vertexaisearch.cloud.google.com/grounding-api-redirect/...
+
+These links redirect to the underlying source pages.
+
+Evaluation
+
+Conversational routing ablation
+
+A 33-run ablation across 11 development cases compared the original direct-RAG behavior with the full conversational pipeline.
+
+End-to-end fact accuracy: 54.5% → 100%
+Correctly routed development cases: 11/11
+Conversation-history requests that bypassed document retrieval: 3/3
+
+End-to-end functional testing
+
+The current system also completed 30 end-to-end functional tests covering:
+
+General conversation without a PDF.
+
+Standalone document questions.
+
+Context-dependent document follow-ups.
+
+Conversation-history questions.
+
+Hybrid document and general answers.
+
+Strict Document mode.
+
+General-query retrieval bypass.
+
+Google Search routing and citation extraction.
+
+Document-plus-web answers.
+
+Session restart and conversation recovery.
+
+PDF replacement behavior.
+
+Persistence and restoration of web citations.
+
+Explicit conversation termination.
+
+Result:
+
+30/30 tests completed successfully
+
+This result describes tested local functionality. It does not imply production-scale load, security, or reliability validation.
+
+Session and Storage Behavior
+
+The application supports one active PDF per conversation.
+
+When a new PDF is uploaded:
+
+The session's active document is replaced.
+
+Messages tied to the previous PDF are removed.
+
+Document-independent general and web conversations are preserved.
+
+New document questions use only the new session-scoped FAISS index.
+
+PostgreSQL stores session and message metadata, including:
+
 session_id
 document_id
 query
 answer
+query_category
+source_type
+web_search_used
+web_sources
 created_at
-```
 
-When an active session is resumed, saved chat history is restored to the frontend.
+Security and Isolation Improvements
 
----
+Public utility endpoints that could expose shared document resources were removed or disabled, including:
 
-## 12. One Active Document Per Conversation
+GET /rag/list-vector-stores
+GET /rag/pdf/{document_id}
 
-The current application supports one active document per conversation.
+The main workflow now uses session-scoped upload and query endpoints.
 
-When a new PDF is uploaded, the session’s active document is updated and the previous chat history for that session is cleared.
+The system provides application-level anonymous session isolation, but it is not a replacement for authentication, authorization, encryption, or production security controls.
 
-This keeps the app simple and prevents cross-document contamination.
+Current Limitations
 
----
+Only one active PDF is supported per conversation.
 
-## Final Workflow
-
-The current application supports:
-
-```text
-Open Streamlit app
-→ Start or resume anonymous active session
-→ Upload one PDF
-→ Ask document-grounded questions
-→ Ask follow-up questions
-→ Ask questions about conversation history
-→ Close or restart the app
-→ Resume unfinished conversation
-→ End Conversation when finished
-```
-
-After clicking `End Conversation`, the old conversation will not be restored on the next run.
-
----
-
-## Current Limitations
-
-```text
-Only one active document is supported per conversation.
 There is no formal user login system.
+
 Anonymous identity depends on the browser client_id.
-Removing client_id from the URL creates a new anonymous client.
-There is no automatic cleanup for old ended sessions yet.
-There is no multi-document library UI yet.
-There is no background job queue for large PDF processing yet.
-The app is still designed mainly for local or self-hosted use.
-```
 
----
+Removing the client_id from the URL creates a new anonymous client.
 
-## Summary
+Ended sessions are not automatically deleted.
 
-The project was improved from a basic backend RAG demo into a usable single-document QA application with:
+There is no multi-document library interface.
 
-```text
-Reproducible local setup
-Frontend PDF upload flow
-Gemini-based document QA
-Document-specific querying
-Follow-up question rewriting
-Conversation-history question answering
+PDF processing is synchronous and has no background job queue.
+
+Search quality depends on Gemini Google Search grounding.
+
+Free Gemini API quotas can limit testing volume.
+
+The project is designed mainly for local or self-hosted use.
+
+The 30 successful tests are functional tests, not production load tests.
+
+Summary
+
+The project has been extended from a basic single-turn PDF RAG demo into a Document Q&A System with:
+
+General conversation without a PDF
+Strict document-only question answering
+Document-scoped FAISS retrieval
+Follow-up query rewriting
+Conversation-history answering
+Document and general-knowledge synthesis
+Gemini Google Search grounding
+Document and web synthesis
+Citation extraction and persistence
 Anonymous multi-user session isolation
-Session-scoped PDF/text/FAISS storage
-Removed unsafe public document endpoints
-SQL-backed resumable conversations
-Explicit End Conversation control
-```
+Resumable conversations
+Session-scoped PDF, text, and vector-store storage
+30/30 successful end-to-end functional tests
