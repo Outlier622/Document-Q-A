@@ -9,6 +9,7 @@ This version supports:
 5. Resumable anonymous conversations with persisted web citations.
 """
 
+import time
 import uuid
 
 import requests
@@ -18,7 +19,7 @@ from app.core.logger import configure_logging
 
 
 logger = configure_logging("STREAMLIT_APP")
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = "http://18.220.255.215:8000"
 
 SOURCE_LABELS = {
     "conversation_history": "Conversation history",
@@ -96,6 +97,45 @@ def upload_pdf_to_backend(uploaded_file, session_id: str):
     )
     response.raise_for_status()
     return response.json()
+
+
+def get_processing_job(job_id: str):
+    response = requests.get(
+        f"{API_BASE_URL}/rag/jobs/{job_id}",
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def wait_for_processing_job(
+    job_id: str,
+    timeout_seconds: int = 300,
+    poll_interval_seconds: int = 2,
+    status_placeholder=None,
+):
+    deadline = time.monotonic() + timeout_seconds
+
+    while time.monotonic() < deadline:
+        job = get_processing_job(job_id)
+        status = job.get("status", "UNKNOWN")
+        attempts = job.get("attempt_count", 0)
+
+        if status_placeholder is not None:
+            status_placeholder.info(
+                f"Document processing status: {status} | attempts: {attempts}"
+            )
+
+        if status == "COMPLETED":
+            return job
+        if status in {"FAILED", "CANCELLED"}:
+            return job
+
+        time.sleep(poll_interval_seconds)
+
+    raise TimeoutError(
+        "Document processing is still running after the frontend polling timeout."
+    )
 
 
 def query_assistant(
@@ -307,6 +347,31 @@ def main():
                             uploaded_file=uploaded_file,
                             session_id=st.session_state.session_id,
                         )
+
+                        if result.get("job_id"):
+                            status_placeholder = st.empty()
+                            status_placeholder.info(
+                                "PDF uploaded to S3 and queued for background processing."
+                            )
+                            job = wait_for_processing_job(
+                                job_id=result["job_id"],
+                                timeout_seconds=900,
+                                poll_interval_seconds=2,
+                                status_placeholder=status_placeholder,
+                            )
+
+                            if job.get("status") != "COMPLETED":
+                                last_error = job.get("last_error") or "Unknown error"
+                                st.error(
+                                    f"Document processing ended with status "
+                                    f"{job.get('status')}: {last_error}"
+                                )
+                                return
+
+                            result = job
+                            status_placeholder.success(
+                                "Background document processing completed."
+                            )
 
                         st.session_state.document_id = result.get("document_id")
                         st.session_state.uploaded_filename = result.get(

@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
+from app.config.configuration import Config
 from app.core.logger import configure_logging
 from app.schemas.rag_schema import (
     AssistantQuerySchema,
@@ -12,6 +13,7 @@ from app.schemas.rag_schema import (
     StartOrResumeSessionSchema,
 )
 from app.services.rag_service import (
+    enqueue_pdf_processing,
     generate_vector_store_for_pdf,
     query_assistant,
     query_rag_with_reference,
@@ -19,6 +21,7 @@ from app.services.rag_service import (
 )
 from app.services.session_service import (
     end_session,
+    get_processing_job,
     is_session_active,
     start_or_resume_session,
 )
@@ -26,6 +29,7 @@ from app.services.session_service import (
 
 router = APIRouter()
 logger = configure_logging("RAG_ROUTE")
+config = Config()
 
 
 @router.get("/")
@@ -103,6 +107,16 @@ async def upload_pdf(
         f"vector_store_path={saved_vector_store_path}"
     )
 
+    if config.DOCUMENT_PROCESSING_MODE == "sqs":
+        job_id = str(uuid.uuid4())
+        return await enqueue_pdf_processing(
+            pdf_file=pdf_file,
+            session_id=session_id,
+            document_id=document_id,
+            job_id=job_id,
+            saved_pdf_path=saved_pdf_path,
+        )
+
     return await generate_vector_store_for_pdf(
         pdf_file=pdf_file,
         session_id=session_id,
@@ -111,6 +125,14 @@ async def upload_pdf(
         output_text_file_path=output_text_file_path,
         saved_vector_store_path=saved_vector_store_path,
     )
+
+
+@router.get("/jobs/{job_id}")
+async def get_job_status(job_id: str):
+    job = get_processing_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Processing job not found.")
+    return JSONResponse(content=job)
 
 
 @router.post("/assistant/query")

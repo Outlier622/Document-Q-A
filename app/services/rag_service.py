@@ -1,6 +1,5 @@
 import os
 import re
-import shutil
 from datetime import datetime, timezone
 from typing import Any
 
@@ -21,8 +20,12 @@ from app.schemas.rag_schema import (
     QueryOnlySchema,
     QueryWithReferenceSchema,
 )
+from app.services.storage_service import StorageService
+from app.services.queue_service import QueueService
 from app.services.session_service import (
+    create_processing_job,
     is_session_active,
+    mark_processing_job_failed,
     save_message,
     set_session_document,
 )
@@ -30,6 +33,8 @@ from app.services.session_service import (
 
 config = Config()
 logger = configure_logging("RAG_SERVICE")
+storage_service = StorageService(config)
+queue_service = QueueService(config)
 
 _default_embeddings = None
 _default_rag_chain = None
@@ -300,14 +305,17 @@ async def generate_vector_store_for_pdf(
                 detail="The conversation has ended or does not exist.",
             )
 
-        os.makedirs(os.path.dirname(saved_pdf_path), exist_ok=True)
         os.makedirs(os.path.dirname(output_text_file_path), exist_ok=True)
         os.makedirs(os.path.dirname(saved_vector_store_path), exist_ok=True)
 
         uploaded_filename = pdf_file.filename or "uploaded.pdf"
 
-        with open(saved_pdf_path, "wb") as output_file:
-            shutil.copyfileobj(pdf_file.file, output_file)
+        storage_service.save_uploaded_pdf(
+            upload_file=pdf_file,
+            local_path=saved_pdf_path,
+            session_id=session_id,
+            document_id=document_id,
+        )
 
         chunks = generate_text_chunks_from_pdf(
             saved_pdf_path,
@@ -315,6 +323,13 @@ async def generate_vector_store_for_pdf(
         )
 
         create_vector_store(chunks, saved_vector_store_path)
+
+        storage_service.sync_processed_artifacts(
+            session_id=session_id,
+            document_id=document_id,
+            text_path=output_text_file_path,
+            vector_store_path=saved_vector_store_path,
+        )
 
         set_session_document(
             session_id=session_id,
@@ -332,6 +347,7 @@ async def generate_vector_store_for_pdf(
                 "session_id": session_id,
                 "document_id": document_id,
                 "uploaded_filename": uploaded_filename,
+                "storage_backend": config.STORAGE_BACKEND,
                 "message": "PDF uploaded and vector store created.",
             }
         )
@@ -343,6 +359,87 @@ async def generate_vector_store_for_pdf(
         raise HTTPException(
             status_code=500,
             detail=f"Error processing the PDF: {error}",
+        ) from error
+
+
+async def enqueue_pdf_processing(
+    pdf_file: UploadFile,
+    session_id: str,
+    document_id: str,
+    job_id: str,
+    saved_pdf_path: str,
+):
+    """Persist an upload and dispatch its heavy processing through SQS."""
+    if config.STORAGE_BACKEND != "s3":
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Asynchronous SQS processing requires STORAGE_BACKEND=s3."
+            ),
+        )
+
+    if not is_session_active(session_id):
+        raise HTTPException(
+            status_code=409,
+            detail="The conversation has ended or does not exist.",
+        )
+
+    uploaded_filename = pdf_file.filename or "uploaded.pdf"
+
+    try:
+        create_processing_job(
+            job_id=job_id,
+            session_id=session_id,
+            document_id=document_id,
+            uploaded_filename=uploaded_filename,
+        )
+
+        storage_service.save_uploaded_pdf(
+            upload_file=pdf_file,
+            local_path=saved_pdf_path,
+            session_id=session_id,
+            document_id=document_id,
+        )
+
+        message_id = queue_service.send_document_job(
+            job_id=job_id,
+            session_id=session_id,
+            document_id=document_id,
+            uploaded_filename=uploaded_filename,
+        )
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "job_id": job_id,
+                "status": "PENDING",
+                "session_id": session_id,
+                "document_id": document_id,
+                "uploaded_filename": uploaded_filename,
+                "storage_backend": config.STORAGE_BACKEND,
+                "processing_mode": config.DOCUMENT_PROCESSING_MODE,
+                "sqs_message_id": message_id,
+                "message": "PDF accepted and queued for processing.",
+            },
+        )
+
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except HTTPException:
+        raise
+    except Exception as error:
+        try:
+            mark_processing_job_failed(
+                job_id=job_id,
+                attempt_count=0,
+                error_message=str(error),
+            )
+        except Exception:
+            logger.exception("Could not mark enqueue failure in processing_jobs")
+        logger.exception("Failed to queue PDF processing job")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not queue PDF processing: {error}",
         ) from error
 
 
@@ -1239,11 +1336,17 @@ async def query_assistant(request: AssistantQuerySchema):
             f"vectorstores/faiss_index_{request.document_id}"
         )
 
-        if not os.path.exists(saved_vector_store_path):
+        try:
+            storage_service.ensure_vector_store_local(
+                session_id=request.session_id,
+                document_id=request.document_id,
+                local_vector_store_path=saved_vector_store_path,
+            )
+        except FileNotFoundError as error:
             raise HTTPException(
                 status_code=404,
                 detail="Document ID not found for this session.",
-            )
+            ) from error
 
         current_vector_store = load_vector_store(saved_vector_store_path)
 
