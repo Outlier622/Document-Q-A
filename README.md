@@ -1,397 +1,228 @@
-Document Q&A System
+# LangGraph-Based Agentic RAG System for Document Q&A
 
-The Document Q&A System is a document-centered conversational assistant for users who need to upload a PDF, ask grounded questions about its contents, continue with context-dependent follow-up questions, review earlier conversation history, and optionally supplement document analysis with current web information.
+A document-aware conversational assistant built with **FastAPI, Streamlit, LangChain, LangGraph, Gemini, and FAISS**. A single Agent can choose tools, inspect their results, and make additional tool calls before answering.
 
-The project extends a basic single-turn PDF RAG backend into a multi-source conversational system with persistent sessions, asynchronous document processing, cloud-backed storage, and an ECS-deployed backend. It can operate as a strict document question-answering system or as a broader assistant that chooses among the uploaded document, conversation history, general model knowledge, and Google Search grounding.
+The current application runs its API, PDF processing, file storage, and SQLite database locally. Gemini inference and Google Search require internet access and a valid Google API key. Earlier AWS components remain in the repository for reference; they are not needed for local startup.
 
-Original project:
+## Features
 
-https://github.com/FaisalAhmedBijoy/Document-QA-RAG-System-FastAPI
+- General conversation without uploading a document.
+- PDF question answering with session-scoped FAISS retrieval.
+- Context-dependent follow-ups and questions about saved conversation history.
+- Optional Google Search and combined document/web answers.
+- Assistant and Strict Document modes with different tool permissions.
+- Resumable anonymous conversations with persisted answers and web sources.
+- One active PDF per conversation; replacing it removes old document-linked messages while preserving independent general/web turns.
+- Tool execution records and retrieved document evidence displayed after each answer.
+- Bounded execution with tool-call limits, a round limit, and a timeout.
 
-What This Project Is For
+## How the Agent works
 
-The system supports workflows that require more than one-off PDF retrieval:
+**LangChain** provides the Gemini model integration, structured tool schemas, message types, text splitting, embeddings, and vector-store integration. **LangGraph** manages the model/tool execution loop and request-local state.
 
-Ask factual questions whose answers must come from an uploaded PDF.
+```mermaid
+flowchart TD
+    UI[Streamlit] --> API[FastAPI: validate session and current document]
+    API --> Agent[Gemini decides the next action]
+    Agent -->|Tool calls| Tools[Execute permitted tools]
+    Tools --> Doc[Search current PDF]
+    Tools --> History[Read saved conversation]
+    Tools --> Web[Google Search]
+    Doc --> Agent
+    History --> Agent
+    Web --> Agent
+    Agent -->|Final answer| Save[Save answer and web sources in SQLite]
+    Tools -->|Budget exhausted| Final[Final model call without tools]
+    Final --> Save
+    Save --> UI
+```
 
-Ask follow-up questions that depend on earlier conversation context.
+The Agent is a **single tool-using Agent**, not a multi-agent platform. It cannot run shell commands, modify project files, or autonomously operate the computer.
 
-Review, summarize, or compare previous questions and answers.
+| Tool | Purpose | Availability |
+|---|---|---|
+| `document_search(query)` | Retrieve evidence from the current PDF | A document must be attached |
+| `conversation_history()` | Read server-provided history and resolve follow-ups | Both modes; Strict mode filters eligible history |
+| `web_search(query)` | Obtain current information with Google grounding | Assistant mode with search enabled |
 
-Ask general questions without forcing every request through document retrieval.
+The backend binds the session and document IDs. Tool arguments cannot override those IDs or specify arbitrary file paths. Unknown or disallowed tool calls are rejected.
 
-Combine document evidence with general explanation or advice.
+### Response modes
 
-Verify or update document content with current web information.
+- **Assistant:** can use document evidence, history, general model knowledge, and optional web search.
+- **Strict Document:** requires a PDF and only permits document retrieval and eligible document/history turns. The web tool is not exposed. If no evidence is obtained, the system returns an evidence-unavailable response.
 
-Resume an unfinished anonymous conversation after restarting the application.
+With the Agent engine, response categories describe observed tool use rather than an initial routing decision. Assistant-mode document answers are conservatively labeled `HYBRID` because general explanation is allowed. This label alone does not mean web search occurred.
 
-Process uploaded documents asynchronously instead of blocking the API request.
+## Local setup
 
-The system keeps document facts, conversation history, general knowledge, and web sources separate so users can understand where an answer came from.
+Python **3.12** was used to validate the current stack. Run commands from the repository root.
 
-Key Features
+### 1. Prepare the environment
 
-Document-grounded Q&A
+For a new checkout:
 
-Users can upload one PDF per active conversation. The backend extracts text, creates a session-scoped FAISS vector store, retrieves relevant chunks, and generates an answer grounded in the uploaded document.
+```bash
+git clone https://github.com/Outlier622/Document-Q-A.git
+cd Document-Q-A
+conda create -n rag_llm python=3.12
+conda activate rag_llm
+python -m pip install -r requirements.txt
+```
 
-Follow-up question rewriting
+If `rag_llm` already exists, activate it and install the current requirements; do not recreate it.
 
-Recent conversation turns are used to rewrite incomplete follow-up questions into standalone document-retrieval queries.
+### 2. Configure `.env`
 
-User: What insurance coverage does the lease require?User: What about the second option?
+Create `.env` in the project root with the following settings. Replace the API-key placeholder with your own key. Do not commit `.env`.
 
-The second question is rewritten into a complete document query before retrieval.
+```dotenv
+GOOGLE_API_KEY=your_google_api_key
+LLM_MODEL=gemini-3.5-flash
+HUGGINGFACE_EMBEDDING_MODEL=all-MiniLM-L6-v2
+CHUNK_SIZE=1000
+CHUNK_OVERLAP=200
+VECTOR_STORE_PATH=app/data/vectorstores/faiss_index
+VECTOR_STORE_DIR=app/data/vectorstores
 
-Conversation-history Q&A
+STORAGE_BACKEND=local
+DOCUMENT_PROCESSING_MODE=sync
+DATABASE_BACKEND=sqlite
+SQLITE_DATABASE_PATH=app/data/app.db
 
-The system can answer questions about earlier turns without searching the PDF.
+QUERY_ENGINE=agent
+AGENT_MAX_ROUNDS=4
+AGENT_MAX_TOOL_CALLS=6
+AGENT_TIMEOUT_SECONDS=180
+AGENT_TOP_K=5
+```
 
-What was my first question?Which previous answer mentioned the insurance amount?Summarize what we discussed.
+`LLM_MODEL` must be a model available to your Google account; the configured model above passed the live tool-loop smoke test. `VECTOR_STORE_PATH` is required for compatibility with the old shared-index endpoints. The main session-based UI builds a separate index for each uploaded PDF and does not require a prebuilt index at that default path.
 
-General assistant responses
+### 3. Start the backend
 
-In Assistant mode, users can ask general questions even when no PDF is uploaded. These questions bypass FAISS retrieval and are answered using the language model and relevant conversation context.
+```bash
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
 
-Document and general-knowledge synthesis
+Wait for `Application startup complete` and check that no subsequent startup error appears.
 
-For recommendations, evaluations, comparisons, or implications, the system can combine document evidence with general explanation or advice while keeping the two source types separate.
+### 4. Start the frontend in a second terminal
 
-Google Search grounding
+Activate the same environment and run:
 
-When web search is enabled, current or explicitly online questions can use Gemini Google Search grounding. The frontend displays:
+```bash
+python -m streamlit run frontend.py
+```
 
-Whether web search was used.
+- Frontend: [http://localhost:8501](http://localhost:8501)
+- API documentation: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
-Source titles.
+Keep both terminals running. The Agent runs inside the backend; it does not need a third process. No Docker, SQS worker, or PostgreSQL service is required in local mode.
 
-Grounding redirect URLs.
+If Streamlit reports a refused connection, check the backend terminal first, then use **Retry connection** or refresh the page. The frontend currently connects to `http://localhost:8000`.
 
-The answer text supported by each source.
+## Try the Agent
 
-The system also supports document-plus-web questions, such as checking whether information in an uploaded PDF is still current.
+1. Select Assistant and ask a general question without uploading a PDF.
+2. Ask what your previous question was; inspect the `conversation_history` tool record.
+3. Upload a PDF whose content you know and ask a factual question; inspect `document_search` and the retrieved evidence.
+4. Ask a follow-up that refers to the previous answer.
+5. Enable Google Search and ask the Agent to retrieve a claim from the PDF, then verify it against current external sources.
+6. Switch to Strict Document and request web verification; no web tool should execute.
 
-Resumable anonymous conversations
+Expand **Tools used** after the answer. A `completed` tool status means execution succeeded, not that every generated statement is correct. Check retrieved evidence and source links against the answer.
 
-Each browser receives a persistent client_id, and each active conversation receives a UUID-based session_id. PostgreSQL persistence restores:
+## Storage and persistence
 
-Active session ID.
-
-Current document ID.
-
-Uploaded filename.
-
-Chat history.
-
-Query categories and source types.
-
-Web search status and citations.
-
-Session isolation
-
-Each conversation keeps its document, extracted text, vector store, and message history isolated from other sessions.
-
-For local storage, session resources use:
-
+```text
+app/data/app.db
 app/data/sessions/{session_id}/
+    pdfs/{document_id}.pdf
+    texts/{document_id}.txt
+    vectorstores/faiss_index_{document_id}/
+        index.faiss
+        index.pkl
+```
 
-For S3-backed storage, document artifacts are stored under:
+PDF upload synchronously extracts text with pdfplumber, splits it, generates embeddings, and saves FAISS artifacts. Large uploads can take time. The embedding model may need downloading on its first use.
 
-document-qa/sessions/{session_id}/documents/{document_id}/original.pdfextracted.txtfaiss/index.faissfaiss/index.pkl
+SQLite stores sessions, final answers, categories, and web sources. The backend reads conversation history from the database rather than trusting a client's history payload. Stale document IDs are rejected, and answers tied to a replaced document cannot be saved as current-document turns.
 
-This prevents PDFs, extracted text, FAISS indexes, chat histories, and web citations from being mixed across sessions.
+Tool steps and retrieved document excerpts are response-only: they are not restored after a restart. Graph state is not checkpointed. Keeping the same browser `client_id` allows the conversation to resume, but this anonymous identifier is not authentication.
 
-Asynchronous document processing
+## Main implementation files
 
-PDF upload no longer requires the API request to perform the complete parsing, chunking, embedding, and indexing workflow synchronously.
+| Location | Responsibility |
+|---|---|
+| `app/agents/graph.py` | LangGraph state, model/tool loop, limits, result metadata |
+| `app/agents/tools.py` | Session-bound document, history, and web tools |
+| `app/services/query_context_service.py` | Resolve server-owned query context |
+| `app/services/document_retrieval_service.py` | Reusable current-document retrieval |
+| `app/services/web_search_service.py` | Gemini grounding and source extraction |
+| `app/services/rag_service.py` | Query entry point, answer persistence, retained legacy pipeline |
+| `app/services/session_service.py` | Session, history, and document ownership checks |
+| `app/processing/` | PDF extraction, splitting, embeddings, and FAISS |
+| `app/routes/rag_route.py` | HTTP endpoints |
+| `frontend.py` | Streamlit interface |
 
-FastAPI upload request→ Upload original PDF to Amazon S3→ Create processing-job metadata in PostgreSQL→ Send a job to Amazon SQS→ ECS Fargate worker downloads the PDF→ Extract text and split document into chunks→ Generate embeddings and build the FAISS index→ Upload extracted text and FAISS artifacts to S3→ Update processing-job status in PostgreSQL
+The preferred endpoint is `POST /rag/assistant/query`; `POST /rag/query-by-document` remains compatible. Session start/resume, session end, and PDF upload retain their existing endpoints. See the generated API documentation for request schemas.
 
-This separates API responsiveness from document-processing work and allows the worker to run independently from the web service.
+## Dependencies and compatibility
 
-Response Modes
+The validated local stack includes LangChain **1.4.0**, LangGraph **1.2.11**, and `langchain-google-genai` **4.4.0**. Exact local pins are in `requirements.txt`.
 
-Assistant
+The former Google integration 2.1.8 discarded thought signatures required by the configured Gemini model during multi-turn tool calls. The current integration preserves those messages. Retained RetrievalQA functionality uses `langchain-classic`; text splitting uses `langchain-text-splitters`.
 
-Assistant mode can use:
+Set `QUERY_ENGINE=legacy` and restart the backend to use the earlier classifier pipeline with the current local dependencies. This changes orchestration, not the local storage settings.
 
-Document retrievalConversation historyGeneral model knowledgeDocument + general knowledgeGoogle SearchDocument + Google Search
+## Validation
 
-A PDF is optional in this mode.
+Run offline tests with a disposable SQLite database and scripted models:
 
-Strict Document
+```bash
+python -B -m unittest discover -s tests -v
+python -m pip check
+```
 
-Strict Document mode is limited to:
+Opt-in live Gemini smoke test, using synthetic history rather than user documents:
 
-Uploaded documentConversation history
+```bash
+python -B tests/live_agent_smoke.py
+```
 
-A PDF is required. General knowledge and web search are not used to fill gaps in the document.
+Live tests use API quota and may incur charges.
 
-Query Routing
+Validation performed during Agent integration:
 
-Route
+- **25 offline tests passed**, covering tool loops, permission checks, failures, limits, timeouts, session context, persistence, and endpoint compatibility.
+- Live Gemini model -> history tool -> model execution passed.
+- A live Google Search check returned grounding sources.
+- Dependency checks passed in `rag_llm`.
+- The project owner subsequently reported successful manual UI functionality testing; this is not a formal benchmark.
 
-Behavior
+The older `evaluation/` results cover an earlier three-category conversational pipeline, not the current Agent. They should not be presented as Agent accuracy results. Representative PDF end-to-end evaluation and a controlled Agent-versus-legacy comparison remain future work.
 
-DOCUMENT
+## Current limitations
 
-Retrieves from the uploaded PDF and answers from document evidence.
+- One active PDF per session; no multi-document library.
+- No user authentication or production-scale load validation.
+- Old indexes do not contain reliable page-level citations; retrieved excerpts are not sentence-level attribution.
+- Final web sources come from search metadata; intermediate grounding spans are not presented as citations of the final synthesized answer.
+- No token streaming, persistent Agent checkpoints, or interrupted-run recovery.
+- A timed-out graph cannot forcibly stop a synchronous SDK operation already running in a worker thread, though that request cannot save a late answer.
+- No autonomous file editing, command execution, or multi-agent collaboration.
 
-FOLLOW_UP_DOCUMENT
+## Retained AWS implementation
 
-Rewrites the follow-up using recent history, then retrieves from the PDF.
+The repository retains local/S3 storage abstractions, SQS worker code, PostgreSQL support, `Dockerfile.ecs`, and `requirements.ecs.txt`. These document the earlier deployment approach. The AWS dependency manifest has **not** been migrated to the current Agent stack and is not the supported installation path for this version.
 
-CONVERSATION_HISTORY
+Local runtime data and credentials should not be added to commits. Existing historical data tracked by Git is not automatically removed by this update.
 
-Answers from prior turns and bypasses document retrieval.
+## Further documentation
 
-GENERAL
+- [Agent configuration, response fields, and execution limits](docs/agent_setup.md)
+- [Foundation interfaces and session scoping](docs/foundation_interfaces.md)
+- [Earlier evaluation framework](evaluation/README.md)
 
-Uses general model knowledge and relevant conversation context.
-
-HYBRID
-
-Combines uploaded-document evidence with general explanation or advice.
-
-WEB
-
-Uses Gemini Google Search grounding and returns web citations.
-
-DOCUMENT_AND_WEB
-
-Combines retrieved document evidence with current grounded web information.
-
-If a user asks about an uploaded document when no PDF is available, the system returns a document-unavailable response instead of inventing content.
-
-End-to-End Workflow
-
-Open Streamlit frontend→ Start or resume an anonymous active session→ Ask a general question or upload a PDF→ FastAPI stores the original PDF in S3→ PostgreSQL records a processing job→ SQS dispatches the job to the ECS worker→ Worker parses, chunks, embeds, builds FAISS, and stores artifacts in S3→ Classify later questions by required source→ Retrieve from the PDF, history, model knowledge, web, or a combination→ Generate a source-aware answer→ Save the answer and metadata to PostgreSQL→ Restart the application and resume the active conversation→ End the conversation explicitly when finished
-
-Architecture
-
-Streamlit frontend|vECS Fargate FastAPI service|+--> Amazon RDS PostgreSQL|       - sessions|       - messages|       - processing jobs|+--> Amazon S3|       - original PDFs|       - extracted text|       - FAISS artifacts|+--> Amazon SQS|vECS Fargate document worker|+--> PDF parsing+--> chunking+--> embeddings+--> FAISS indexing+--> S3 artifact upload
-
-FastAPI query pipeline|+--> Conversation history+--> General Gemini response+--> FAISS document retrieval+--> Gemini Google Search grounding+--> Document + general synthesis+--> Document + web synthesis
-
-AWS deployment components:
-
-Amazon S3Amazon SQSAmazon ECS FargateAmazon RDS for PostgreSQLAmazon ECRAWS Secrets ManagerIAM task rolesCloudWatch Logs
-
-Main technologies:
-
-PythonFastAPIStreamlitGemini APIGemini Google Search groundingFAISSall-MiniLM-L6-v2 embeddingsPyMuPDFPostgreSQLLangChainDockerAmazon S3Amazon SQSAmazon ECS FargateAmazon RDSAmazon ECRAWS Secrets Managerboto3
-
-Main Files
-
-frontend.pyapp/main.pyapp/routes/rag_route.pyapp/schemas/rag_schema.pyapp/services/rag_service.pyapp/services/session_service.pyapp/services/storage_service.pyapp/services/queue_service.pyapp/services/document_processing_service.pyapp/workers/document_worker.pyapp/database/app/processing/generate_rag_chain.pyapp/processing/generate_vector_db.pyapp/processing/generate_text_chunks.pyapp/processing/single_query_inference.pyDockerfile.ecsrequirements.txtrequirements.ecs.txt.dockerignore
-
-Local runtime data may still exist under:
-
-app/data/
-
-Runtime data, local databases, session artifacts, and .env files should not be committed to Git.
-
-API Endpoints
-
-POST /rag/sessions/start-or-resumePOST /rag/sessions/{session_id}/endPOST /rag/upload-document-pdfPOST /rag/assistant/queryPOST /rag/query-by-document
-
-/rag/query-by-document remains available for backward compatibility.
-
-Local Setup
-
-Create and activate the environment
-
-conda create -n rag_llm python=3.11conda activate rag_llm
-
-Install dependencies
-
-pip install -r requirements.txt
-
-The current Google Search grounding implementation is compatible with:
-
-langchain-google-genai==2.1.8google-ai-generativelanguage==0.6.18
-
-Configure environment variables
-
-Create a .env file using the variable names expected by app/config/configuration.py.
-
-GOOGLE_API_KEY=<your_google_api_key>CHUNK_SIZE=1000CHUNK_OVERLAP=200HUGGINGFACE_EMBEDDING_MODEL=all-MiniLM-L6-v2VECTOR_STORE_PATH=app/data/vectorstores/faiss_index
-
-DATABASE_URL=<your_database_url>STORAGE_BACKEND=localS3_BUCKET_NAME=<your_bucket_name>S3_PREFIX=document-qaSQS_QUEUE_URL=<your_queue_url>SQS_VISIBILITY_TIMEOUT=120
-
-Do not commit real API keys, passwords, database URLs, AWS credentials, or .env files.
-
-Start the FastAPI backend
-
-uvicorn app.main --reload --host 0.0.0.0 --port 8000
-
-Start the Streamlit frontend
-
-In a second terminal:
-
-streamlit run frontend.py
-
-The frontend normally opens at:
-
-http://localhost:8501
-
-When the frontend connects to an ECS-hosted API instead of a local FastAPI process, set:
-
-$env="http://<ecs-api-address>:8000"
-
-Then start Streamlit normally.
-
-ECS Container Setup
-
-The ECS image uses:
-
-Dockerfile.ecsrequirements.ecs.txt
-
-Build locally:
-
-docker build --platform linux/amd64 -f Dockerfile.ecs -t document-qa .
-
-Before publishing an image, verify that .env is not included:
-
-docker run --rm document-qa sh -c "if [ -f /app/.env ]; then echo ENV_PRESENT; else echo ENV_NOT_PRESENT; fi"
-
-Expected result:
-
-ENV_NOT_PRESENT
-
-The .dockerignore file excludes local secrets and runtime artifacts from the Docker build context.
-
-The API container starts FastAPI with Uvicorn. The worker service uses the same image but overrides the container command to:
-
-python -m app.workers.document_worker
-
-Google Search Grounding Test
-
-The standalone script can test search grounding without starting FastAPI or Streamlit:
-
-python test_google_search.py
-
-A successful response should include:
-
-WEB SEARCH USED: True
-
-and at least one entry under SOURCES.
-
-Grounding may return redirect URLs such as:
-
-https://vertexaisearch.cloud.google.com/grounding-api-redirect/...
-
-These links redirect to the underlying source pages.
-
-Evaluation
-
-Conversational routing ablation
-
-A 33-run ablation across 11 development cases compared the original direct-RAG behavior with the full conversational pipeline.
-
-End-to-end fact accuracy: 54.5% → 100%Correctly routed development cases: 11/11Conversation-history requests that bypassed document retrieval: 3/3
-
-End-to-end functional testing
-
-The current system also completed 30 end-to-end functional tests covering:
-
-General conversation without a PDF.
-
-Standalone document questions.
-
-Context-dependent document follow-ups.
-
-Conversation-history questions.
-
-Hybrid document and general answers.
-
-Strict Document mode.
-
-General-query retrieval bypass.
-
-Google Search routing and citation extraction.
-
-Document-plus-web answers.
-
-Session restart and conversation recovery.
-
-PDF replacement behavior.
-
-Persistence and restoration of web citations.
-
-Explicit conversation termination.
-
-Result:
-
-30/30 tests completed successfully
-
-This result describes tested local functionality. It does not imply production-scale load, security, reliability, or cloud-performance validation.
-
-Session and Storage Behavior
-
-The application supports one active PDF per conversation.
-
-When a new PDF is uploaded:
-
-The session's active document is replaced.
-
-Messages tied to the previous PDF are removed.
-
-Document-independent general and web conversations are preserved.
-
-New document questions use only the new session-scoped FAISS index.
-
-PostgreSQL stores session and message metadata, including:
-
-session_iddocument_idqueryanswerquery_categorysource_typeweb_search_usedweb_sourcescreated_at
-
-PostgreSQL also stores document-processing job state so the FastAPI service and ECS worker can coordinate asynchronous processing.
-
-Security and Isolation Improvements
-
-Public utility endpoints that could expose shared document resources were removed or disabled, including:
-
-GET /rag/list-vector-storesGET /rag/pdf/{document_id}
-
-The main workflow now uses session-scoped upload and query endpoints.
-
-For ECS deployment, AWS access is provided through IAM task roles rather than local AWS profiles. Sensitive runtime configuration is injected through AWS Secrets Manager, and .dockerignore prevents .env files from being copied into container images.
-
-The system provides application-level anonymous session isolation, but it is not a replacement for authentication, authorization, encryption, or production security controls.
-
-Current Limitations
-
-Only one active PDF is supported per conversation.
-
-There is no formal user login system.
-
-Anonymous identity depends on the browser client_id.
-
-Removing the client_id from the URL creates a new anonymous client.
-
-Ended sessions are not automatically deleted.
-
-There is no multi-document library interface.
-
-Search quality depends on Gemini Google Search grounding.
-
-Gemini API quotas can limit testing volume.
-
-The current ECS deployment does not include a load balancer or stable public domain.
-
-A Fargate task public IP can change after redeployment, so a locally hosted frontend must update API_BASE_URL when using the task's public IP directly.
-
-ECS document-processing latency is currently higher than local processing for some PDFs and can exceed the frontend polling timeout.
-
-The AWS deployment has not been validated under production-scale concurrency or load.
-
-The 30 successful tests are functional tests, not production load tests.
-
-Summary
-
-The project has been extended from a basic single-turn PDF RAG demo into a Document Q&A System with:
-
-General conversation without a PDFStrict document-only question answeringDocument-scoped FAISS retrievalFollow-up query rewritingConversation-history answeringDocument and general-knowledge synthesisGemini Google Search groundingDocument and web synthesisCitation extraction and persistenceAnonymous multi-user session isolationResumable conversationsPostgreSQL persistenceS3-backed PDF, text, and FAISS artifact storageSQS-based asynchronous document processingECS Fargate deployment for the FastAPI service and document workerECR-hosted container imagesIAM task-role access to AWS resourcesSecrets Manager-based runtime secret injection30/30 successful local end-to-end functional tests
-
-The current cloud deployment demonstrates the transition from a local conversational RAG application to a cloud-backed asynchronous document-processing architecture. ECS services are deployed successfully, while document-processing latency on ECS remains a known optimization issue for some uploads.
+Based on the original [Document-QA-RAG-System-FastAPI](https://github.com/FaisalAhmedBijoy/Document-QA-RAG-System-FastAPI) project.

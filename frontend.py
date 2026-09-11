@@ -19,7 +19,7 @@ from app.core.logger import configure_logging
 
 
 logger = configure_logging("STREAMLIT_APP")
-API_BASE_URL = "http://18.220.255.215:8000"
+API_BASE_URL = "http://localhost:8000"
 
 SOURCE_LABELS = {
     "conversation_history": "Conversation history",
@@ -274,7 +274,16 @@ def main():
     try:
         initialize_conversation()
     except requests.exceptions.RequestException as error:
-        st.error(f"Could not start or resume the conversation: {error}")
+        if isinstance(error, requests.exceptions.ConnectionError):
+            st.error(f"Cannot connect to the backend at {API_BASE_URL}.")
+            st.info(
+                "Wait until the backend terminal shows 'Application startup complete', "
+                "then click Retry connection. Keep the backend terminal open."
+            )
+        else:
+            st.error(f"Could not start or resume the conversation: {error}")
+        if st.button("Retry connection", key="retry_backend_connection"):
+            st.rerun()
         st.stop()
 
     with st.sidebar:
@@ -514,6 +523,20 @@ def main():
                     )
 
                 _render_web_sources(web_sources)
+
+                if result.get("agent_limit_reached"):
+                    st.warning("The assistant reached its execution limit. The answer may be incomplete.")
+                if result.get("agent_steps"):
+                    with st.expander("Tools used"):
+                        for step in result["agent_steps"]:
+                            st.write(f"{step['tool']}: {step['status']}")
+                if result.get("document_sources"):
+                    with st.expander("Retrieved document evidence"):
+                        for source in result["document_sources"]:
+                            page = source.get("metadata", {}).get("page")
+                            if isinstance(page, int):
+                                st.caption(f"Page {page + 1}")
+                            st.write(source["text"])
 
                 history_document_id = (
                     None

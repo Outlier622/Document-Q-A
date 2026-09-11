@@ -8,6 +8,17 @@ load_dotenv()
 
 class Config:
     def __init__(self):
+        self.QUERY_ENGINE = os.getenv("QUERY_ENGINE", "agent").strip().lower()
+        if self.QUERY_ENGINE not in {"agent", "legacy"}:
+            raise ValueError("QUERY_ENGINE must be agent or legacy")
+        self.AGENT_MAX_ROUNDS = int(os.getenv("AGENT_MAX_ROUNDS", "4"))
+        self.AGENT_MAX_TOOL_CALLS = int(os.getenv("AGENT_MAX_TOOL_CALLS", "6"))
+        self.AGENT_TIMEOUT_SECONDS = int(os.getenv("AGENT_TIMEOUT_SECONDS", "180"))
+        self.AGENT_TOP_K = int(os.getenv("AGENT_TOP_K", "5"))
+        for name, upper in (("AGENT_MAX_ROUNDS", 12), ("AGENT_MAX_TOOL_CALLS", 20),
+                            ("AGENT_TIMEOUT_SECONDS", 240), ("AGENT_TOP_K", 20)):
+            if not 1 <= getattr(self, name) <= upper:
+                raise ValueError(f"{name} must be between 1 and {upper}")
         # Existing application settings.
         self.CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
         self.HUGGINGFACE_EMBEDDING_MODEL = self.get_required_env(

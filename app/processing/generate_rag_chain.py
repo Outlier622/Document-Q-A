@@ -2,8 +2,8 @@ import os
 
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
+from langchain_classic.chains import RetrievalQA
+from langchain_core.prompts import PromptTemplate
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 from app.core.logger import configure_logging

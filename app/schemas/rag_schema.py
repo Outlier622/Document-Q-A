@@ -49,7 +49,10 @@ class AssistantQuerySchema(BaseModel):
     document_id: str | None = None
     assistant_mode: AssistantMode = "assistant"
     web_search_enabled: bool = True
-    chat_history: list[ChatHistoryItem] = Field(default_factory=list)
+    chat_history: list[ChatHistoryItem] = Field(
+        default_factory=list,
+        description="Legacy field accepted for compatibility; server loads history from the database.",
+    )
 
 
 # Backward-compatible alias for existing imports and evaluation code.

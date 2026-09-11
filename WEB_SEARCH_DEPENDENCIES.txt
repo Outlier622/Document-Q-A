@@ -1,0 +1,4 @@
+# Current local Agent/search integration. Install requirements.txt for the full stack.
+# Version 2.1.8 lost Gemini thought signatures during multi-turn tool calls.
+langchain-google-genai==4.4.0
+google-genai==2.22.0

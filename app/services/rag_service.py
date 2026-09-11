@@ -1,9 +1,8 @@
 import os
 import re
+import asyncio
 from datetime import datetime, timezone
-from typing import Any
 
-from google.ai.generativelanguage_v1beta.types import Tool as GenAITool
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
@@ -22,6 +21,13 @@ from app.schemas.rag_schema import (
 )
 from app.services.storage_service import StorageService
 from app.services.queue_service import QueueService
+from app.services.web_search_service import (
+    _as_dict, extract_grounded_response, invoke_web_search, search_web,
+)
+from app.services.document_retrieval_service import (
+    load_session_vector_store, format_document_context, retrieve_chunks,
+)
+from app.services.query_context_service import resolve_query_context
 from app.services.session_service import (
     create_processing_job,
     is_session_active,
@@ -53,169 +59,6 @@ def _get_default_rag_chain():
         default_vector_store = load_vector_store(config.VECTOR_STORE_PATH)
         _default_rag_chain = create_rag_chain(default_vector_store)
     return _default_rag_chain
-
-
-def _as_dict(value: Any) -> dict:
-    """Convert dictionaries and proto-like objects into plain dictionaries."""
-    if isinstance(value, dict):
-        return value
-
-    model_dump = getattr(value, "model_dump", None)
-    if callable(model_dump):
-        try:
-            dumped = model_dump()
-            return dumped if isinstance(dumped, dict) else {}
-        except Exception:
-            return {}
-
-    if hasattr(value, "__dict__"):
-        return dict(vars(value))
-
-    return {}
-
-
-def _first_present(mapping: dict, *keys: str):
-    for key in keys:
-        if key in mapping and mapping[key] is not None:
-            return mapping[key]
-    return None
-
-
-def invoke_web_search(prompt: str):
-    """Invoke Google Search using langchain-google-genai 2.1.8.
-
-    Version 2.1.8 uses google-ai-generativelanguage and expects the native
-    GenAITool protobuf object. Grounding details are returned in the
-    AIMessage.response_metadata['grounding_metadata'] field.
-    """
-    llm = initialize_llm()
-    search_tool = GenAITool(google_search={})
-    return llm.invoke(prompt, tools=[search_tool])
-
-
-def _extract_old_grounding_metadata(response) -> dict:
-    """Read grounding metadata exposed by langchain-google-genai 2.1.8."""
-    response_metadata = getattr(response, "response_metadata", {}) or {}
-    response_metadata = _as_dict(response_metadata)
-
-    grounding_metadata = _first_present(
-        response_metadata,
-        "grounding_metadata",
-        "groundingMetadata",
-    )
-    return _as_dict(grounding_metadata)
-
-
-def _extract_cited_text_by_chunk(
-    answer_text: str,
-    grounding_metadata: dict,
-) -> dict[int, str]:
-    """Map each grounding chunk index to the answer segment it supports."""
-    cited_text_by_chunk: dict[int, str] = {}
-    supports = _first_present(
-        grounding_metadata,
-        "grounding_supports",
-        "groundingSupports",
-    ) or []
-
-    for support in supports:
-        support_dict = _as_dict(support)
-        segment = _as_dict(support_dict.get("segment"))
-        start_index = _first_present(segment, "start_index", "startIndex")
-        end_index = _first_present(segment, "end_index", "endIndex")
-        segment_text = _first_present(segment, "text")
-
-        if not segment_text and isinstance(start_index, int) and isinstance(
-            end_index, int
-        ):
-            segment_text = answer_text[start_index:end_index]
-
-        indices = _first_present(
-            support_dict,
-            "grounding_chunk_indices",
-            "groundingChunkIndices",
-        ) or []
-
-        for index in indices:
-            if isinstance(index, int) and segment_text:
-                cited_text_by_chunk.setdefault(index, str(segment_text).strip())
-
-    return cited_text_by_chunk
-
-
-def extract_grounded_response(response) -> dict:
-    """Extract answer and Google Search sources for dependency version 2.1.8."""
-    raw_content = getattr(response, "content", "")
-    if isinstance(raw_content, str):
-        answer = raw_content.strip()
-    elif isinstance(raw_content, list):
-        text_parts = []
-        for block in raw_content:
-            block_dict = _as_dict(block)
-            text_value = block_dict.get("text")
-            if text_value:
-                text_parts.append(str(text_value))
-            elif isinstance(block, str):
-                text_parts.append(block)
-        answer = "\n".join(text_parts).strip()
-    else:
-        answer = str(raw_content or "").strip()
-
-    grounding_metadata = _extract_old_grounding_metadata(response)
-    search_queries = _first_present(
-        grounding_metadata,
-        "web_search_queries",
-        "webSearchQueries",
-    ) or []
-    chunks = _first_present(
-        grounding_metadata,
-        "grounding_chunks",
-        "groundingChunks",
-    ) or []
-    supports = _first_present(
-        grounding_metadata,
-        "grounding_supports",
-        "groundingSupports",
-    ) or []
-
-    web_search_used = bool(grounding_metadata or search_queries or chunks or supports)
-    cited_text_by_chunk = _extract_cited_text_by_chunk(
-        answer_text=answer,
-        grounding_metadata=grounding_metadata,
-    )
-
-    sources = []
-    seen_urls = set()
-
-    for index, chunk in enumerate(chunks):
-        chunk_dict = _as_dict(chunk)
-        web = _as_dict(_first_present(chunk_dict, "web"))
-        if not web:
-            continue
-
-        url = _first_present(web, "uri", "url")
-        if not url:
-            continue
-
-        url = str(url)
-        if url in seen_urls:
-            continue
-
-        title = _first_present(web, "title") or url
-        sources.append(
-            {
-                "title": str(title),
-                "url": url,
-                "cited_text": cited_text_by_chunk.get(index, ""),
-            }
-        )
-        seen_urls.add(url)
-
-    return {
-        "answer": answer,
-        "web_search_used": web_search_used,
-        "web_sources": sources,
-    }
 
 
 async def query_rag_without_reference(request: QueryOnlySchema):
@@ -989,8 +832,7 @@ Answer:
 """
 
     try:
-        response = invoke_web_search(prompt)
-        grounded = extract_grounded_response(response)
+        grounded = search_web(prompt)
         answer = grounded["answer"] or _web_failure_answer(query)
         return (
             answer,
@@ -1004,15 +846,7 @@ Answer:
 
 
 def _retrieve_document_context(vector_store, query: str, top_k: int = 5) -> str:
-    documents = vector_store.similarity_search(query, k=top_k)
-    excerpts = []
-
-    for index, document in enumerate(documents, start=1):
-        page_content = str(getattr(document, "page_content", "")).strip()
-        if page_content:
-            excerpts.append(f"[Document excerpt {index}]\n{page_content}")
-
-    return "\n\n".join(excerpts)
+    return format_document_context(retrieve_chunks(vector_store, query, top_k))
 
 
 def answer_hybrid_question(
@@ -1125,8 +959,7 @@ Answer:
 """
 
     try:
-        response = invoke_web_search(prompt)
-        grounded = extract_grounded_response(response)
+        grounded = search_web(prompt)
         answer = grounded["answer"] or _web_failure_answer(query)
         return (
             answer,
@@ -1190,16 +1023,20 @@ def _save_answer(
         else request.document_id
     )
 
-    save_message(
-        session_id=request.session_id,
-        document_id=stored_document_id,
-        query=request.query,
-        answer=answer,
-        query_category=query_category,
-        source_type=source_type,
-        web_search_used=web_search_used,
-        web_sources=web_sources or [],
-    )
+    try:
+        save_message(
+            session_id=request.session_id,
+            document_id=stored_document_id,
+            query=request.query,
+            answer=answer,
+            query_category=query_category,
+            source_type=source_type,
+            web_search_used=web_search_used,
+            web_sources=web_sources or [],
+        )
+    except ValueError as error:
+        # A session can end or its PDF can change while the model is responding.
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 async def query_assistant(request: AssistantQuerySchema):
@@ -1207,17 +1044,32 @@ async def query_assistant(request: AssistantQuerySchema):
         if not request.query.strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
 
-        if not is_session_active(request.session_id):
-            raise HTTPException(
-                status_code=409,
-                detail="The conversation has ended or does not exist.",
-            )
+        request = resolve_query_context(request)
 
         if request.assistant_mode == "strict" and not request.document_id:
             raise HTTPException(
                 status_code=400,
                 detail="Strict Document mode requires an uploaded document.",
             )
+
+        if config.QUERY_ENGINE == "agent":
+            from app.agents.graph import run_agent
+            try:
+                result = await run_agent(request, config)
+            except asyncio.TimeoutError as error:
+                raise HTTPException(504, "Agent execution timed out. Please retry with a narrower question.") from error
+            except Exception as error:
+                logger.exception("Agent execution failed")
+                raise HTTPException(502, "Agent could not complete the request. Please retry.") from error
+            _save_answer(
+                request, result["answer"], result["query_category"], result["source_type"],
+                web_search_used=result["web_search_used"], web_sources=result["web_sources"],
+            )
+            return JSONResponse(content={
+                "query": request.query, "standalone_query": request.query,
+                "assistant_mode": request.assistant_mode, "document_id": request.document_id,
+                "web_search_enabled": request.web_search_enabled, **result,
+            })
 
         logger.info(f"Received assistant query: {request.query}")
         logger.info(
@@ -1331,24 +1183,14 @@ async def query_assistant(request: AssistantQuerySchema):
                 used_document_retrieval=False,
             )
 
-        saved_vector_store_path = (
-            f"app/data/sessions/{request.session_id}/"
-            f"vectorstores/faiss_index_{request.document_id}"
-        )
-
         try:
-            storage_service.ensure_vector_store_local(
-                session_id=request.session_id,
-                document_id=request.document_id,
-                local_vector_store_path=saved_vector_store_path,
+            current_vector_store = load_session_vector_store(
+                request.session_id, request.document_id,
             )
         except FileNotFoundError as error:
             raise HTTPException(
-                status_code=404,
-                detail="Document ID not found for this session.",
+                status_code=404, detail="Document index not found for this session.",
             ) from error
-
-        current_vector_store = load_vector_store(saved_vector_store_path)
 
         if query_category == "DOCUMENT_AND_WEB":
             (

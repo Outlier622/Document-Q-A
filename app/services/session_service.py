@@ -153,6 +153,16 @@ def start_or_resume_session(client_id: str) -> dict:
         )
 
 
+def get_active_session(session_id: str) -> dict | None:
+    """Read current document and ordered history without creating/updating a session."""
+    with SessionLocal() as db:
+        record = db.scalar(select(SessionRecord).where(
+            SessionRecord.session_id == session_id,
+            SessionRecord.status == "ACTIVE",
+        ))
+        return _build_session_payload(db, record) if record is not None else None
+
+
 def is_session_active(session_id: str) -> bool:
     """Return True only when the requested session exists and is active."""
     with SessionLocal() as db:
@@ -234,6 +244,9 @@ def save_message(
 
         if session_record is None:
             raise ValueError("Active session not found")
+
+        if document_id is not None and document_id != session_record.document_id:
+            raise ValueError("The active document changed; please retry the query.")
 
         message_record = MessageRecord(
             session_id=session_id,

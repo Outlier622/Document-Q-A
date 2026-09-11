@@ -6,3 +6,10 @@ __pycache__
 *.log
 *.pyc
 *.env
+
+# Local runtime artifacts (already tracked historical files remain tracked).
+app/data/
+*.db
+*.db-wal
+*.db-shm
+.venv/
