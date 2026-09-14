@@ -213,7 +213,19 @@ The older `evaluation/` results cover an earlier three-category conversational p
 - A timed-out graph cannot forcibly stop a synchronous SDK operation already running in a worker thread, though that request cannot save a late answer.
 - No autonomous file editing, command execution, or multi-agent collaboration.
 
+## Infrastructure
+
+For Terraform configuration and usage instructions, see:
+[Terraform README](infra/terraform/README.md)
+
 ## Retained AWS implementation
+
+A new [Terraform infrastructure draft](infra/terraform/README.md) describes S3,
+SQS, ECS/Fargate, RDS PostgreSQL, IAM, ECR, logs and secret containers for a future
+deployment. It is a local-only Infrastructure as Code exercise: no AWS account
+connection, plan, apply or resource deployment was performed. It does not change
+the current local application. Network IDs, a tested image and secret values
+remain prerequisites for any future deployment.
 
 The repository retains local/S3 storage abstractions, SQS worker code, PostgreSQL support, `Dockerfile.ecs`, and `requirements.ecs.txt`. These document the earlier deployment approach. The AWS dependency manifest has **not** been migrated to the current Agent stack and is not the supported installation path for this version.
 

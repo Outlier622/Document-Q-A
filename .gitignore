@@ -13,3 +13,14 @@ app/data/
 *.db-wal
 *.db-shm
 .venv/
+
+# Terraform local tooling, state, plans and private variable values.
+.tools/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log

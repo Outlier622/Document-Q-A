@@ -1,0 +1,10 @@
+# Illustrative placeholders only. Do not use to deploy.
+aws_region         = "us-east-2"
+project_name       = "document-qa"
+environment        = "dev"
+vpc_id             = "vpc-00000000000000000"
+private_subnet_ids = ["subnet-00000000000000000", "subnet-11111111111111111"]
+api_client_cidrs   = ["10.0.0.0/16"]
+container_image   = "000000000000.dkr.ecr.us-east-2.amazonaws.com/document-qa-dev:REPLACE_WITH_TESTED_TAG"
+api_desired_count    = 0
+worker_desired_count = 0
