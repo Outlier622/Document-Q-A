@@ -15,4 +15,9 @@ logs
 venv
 env
 rag_llm
+.tools
+**/.terraform
+**/*.tfstate*
+**/*.tfvars
+**/*.tfvars.json
 node_modules

@@ -107,7 +107,7 @@ async def upload_pdf(
         f"vector_store_path={saved_vector_store_path}"
     )
 
-    if config.DOCUMENT_PROCESSING_MODE == "sqs":
+    if config.DOCUMENT_PROCESSING_MODE in {"sqs", "kafka"}:
         job_id = str(uuid.uuid4())
         return await enqueue_pdf_processing(
             pdf_file=pdf_file,

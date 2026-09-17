@@ -10,6 +10,13 @@ from app.core.logger import configure_logging
 logger = configure_logging("QUEUE_SERVICE")
 
 
+def create_queue_service(config: Config):
+    if config.DOCUMENT_PROCESSING_MODE == "kafka":
+        from app.services.kafka_queue_service import KafkaQueueService
+        return KafkaQueueService(config)
+    return QueueService(config)
+
+
 class QueueService:
     def __init__(self, config: Config | None = None):
         self.config = config or Config()

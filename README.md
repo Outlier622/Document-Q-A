@@ -218,6 +218,16 @@ The older `evaluation/` results cover an earlier three-category conversational p
 For Terraform configuration and usage instructions, see:
 [Terraform README](infra/terraform/README.md)
 
+For local Kubernetes deployment and Kafka-based asynchronous PDF processing, see:
+[Kubernetes and Kafka README](infra/kubernetes/README.md).
+
+Kafka queues PDF ingestion for a background worker, with persisted job status,
+bounded retries and a dead-letter topic. Kubernetes manifests run the API,
+worker, Streamlit frontend and a local Kafka broker with persistent storage.
+The default host setup remains synchronous; enable Kafka explicitly or use the
+Kubernetes configuration. This is a single-instance local development setup,
+with no AWS connection. Live container/cluster validation is still pending.
+
 ## Retained AWS implementation
 
 A new [Terraform infrastructure draft](infra/terraform/README.md) describes S3,

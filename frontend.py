@@ -9,6 +9,7 @@ This version supports:
 5. Resumable anonymous conversations with persisted web citations.
 """
 
+import os
 import time
 import uuid
 
@@ -19,7 +20,7 @@ from app.core.logger import configure_logging
 
 
 logger = configure_logging("STREAMLIT_APP")
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 
 SOURCE_LABELS = {
     "conversation_history": "Conversation history",
@@ -360,7 +361,7 @@ def main():
                         if result.get("job_id"):
                             status_placeholder = st.empty()
                             status_placeholder.info(
-                                "PDF uploaded to S3 and queued for background processing."
+                                "PDF uploaded and queued for background processing."
                             )
                             job = wait_for_processing_job(
                                 job_id=result["job_id"],
@@ -398,7 +399,7 @@ def main():
 
                         st.success("PDF uploaded and attached to this conversation.")
 
-                    except requests.exceptions.RequestException as error:
+                    except (requests.exceptions.RequestException, TimeoutError) as error:
                         st.error(f"Failed to upload PDF: {error}")
 
         st.divider()

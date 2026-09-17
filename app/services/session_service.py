@@ -202,6 +202,10 @@ def set_session_document(
         if session_record is None:
             raise ValueError("Active session not found")
 
+        # Kafka may redeliver after processing succeeds but before offset commit.
+        # Reattaching the same document must not erase its conversation history.
+        if session_record.document_id == document_id:
+            return
         session_record.document_id = document_id
         session_record.uploaded_filename = uploaded_filename
         session_record.updated_at = now

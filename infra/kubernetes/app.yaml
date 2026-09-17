@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: document-qa-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 5Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: document-qa
+spec:
+  # SQLite + local files: keep API and worker in ONE pod, with ONE replica.
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      app: document-qa
+  template:
+    metadata:
+      labels:
+        app: document-qa
+    spec:
+      terminationGracePeriodSeconds: 60
+      initContainers:
+        - name: initialize-database
+          image: document-qa:local
+          imagePullPolicy: Never
+          command: ["python", "-c", "import app.services.session_service"]
+          envFrom:
+            - configMapRef: {name: document-qa-config}
+            - secretRef: {name: document-qa-secrets}
+          volumeMounts:
+            - {name: data, mountPath: /app/app/data}
+      containers:
+        - name: api
+          image: document-qa:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef: {name: document-qa-config}
+            - secretRef: {name: document-qa-secrets}
+          volumeMounts:
+            - {name: data, mountPath: /app/app/data}
+          resources:
+            requests: {cpu: "250m", memory: "512Mi"}
+            limits: {cpu: "2", memory: "3Gi"}
+          readinessProbe:
+            httpGet: {path: /, port: 8000}
+            periodSeconds: 10
+          startupProbe:
+            httpGet: {path: /, port: 8000}
+            failureThreshold: 60
+            periodSeconds: 5
+        - name: worker
+          image: document-qa:local
+          imagePullPolicy: Never
+          command: ["python", "-m", "app.workers.kafka_worker"]
+          envFrom:
+            - configMapRef: {name: document-qa-config}
+            - secretRef: {name: document-qa-secrets}
+          volumeMounts:
+            - {name: data, mountPath: /app/app/data}
+          resources:
+            requests: {cpu: "500m", memory: "1Gi"}
+            limits: {cpu: "2", memory: "4Gi"}
+        - name: frontend
+          image: document-qa:local
+          imagePullPolicy: Never
+          command: ["python", "-m", "streamlit", "run", "frontend.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true", "--browser.gatherUsageStats=false"]
+          envFrom:
+            - configMapRef: {name: document-qa-config}
+          ports:
+            - containerPort: 8501
+          resources:
+            requests: {cpu: "100m", memory: "128Mi"}
+            limits: {cpu: "1", memory: "512Mi"}
+          readinessProbe:
+            httpGet: {path: /_stcore/health, port: 8501}
+            initialDelaySeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: document-qa-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: document-qa
+spec:
+  selector:
+    app: document-qa
+  ports:
+    - {name: api, port: 8000, targetPort: 8000}
+    - {name: frontend, port: 8501, targetPort: 8501}

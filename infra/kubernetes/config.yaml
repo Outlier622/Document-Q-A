@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: document-qa-config
+data:
+  STORAGE_BACKEND: "local"
+  DOCUMENT_PROCESSING_MODE: "kafka"
+  DATABASE_BACKEND: "sqlite"
+  SQLITE_DATABASE_PATH: "/app/app/data/app.db"
+  QUERY_ENGINE: "agent"
+  LLM_MODEL: "gemini-3.5-flash"
+  HUGGINGFACE_EMBEDDING_MODEL: "sentence-transformers/all-MiniLM-L6-v2"
+  HF_HOME: "/app/app/data/huggingface"
+  VECTOR_STORE_PATH: "/app/app/data/vectorstores/default"
+  VECTOR_STORE_DIR: "/app/app/data/vectorstores"
+  CHUNK_SIZE: "1000"
+  CHUNK_OVERLAP: "200"
+  API_BASE_URL: "http://127.0.0.1:8000"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+  KAFKA_TOPIC: "document-processing"
+  KAFKA_DLQ_TOPIC: "document-processing-dlq"
+  KAFKA_GROUP_ID: "document-workers"
+  KAFKA_MAX_ATTEMPTS: "3"

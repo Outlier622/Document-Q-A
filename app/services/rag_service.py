@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.config.configuration import Config
 from app.core.logger import configure_logging
@@ -20,7 +21,7 @@ from app.schemas.rag_schema import (
     QueryWithReferenceSchema,
 )
 from app.services.storage_service import StorageService
-from app.services.queue_service import QueueService
+from app.services.queue_service import create_queue_service
 from app.services.web_search_service import (
     _as_dict, extract_grounded_response, invoke_web_search, search_web,
 )
@@ -40,7 +41,7 @@ from app.services.session_service import (
 config = Config()
 logger = configure_logging("RAG_SERVICE")
 storage_service = StorageService(config)
-queue_service = QueueService(config)
+queue_service = create_queue_service(config)
 
 _default_embeddings = None
 _default_rag_chain = None
@@ -212,8 +213,8 @@ async def enqueue_pdf_processing(
     job_id: str,
     saved_pdf_path: str,
 ):
-    """Persist an upload and dispatch its heavy processing through SQS."""
-    if config.STORAGE_BACKEND != "s3":
+    """Persist an upload and dispatch heavy processing to the configured queue."""
+    if config.DOCUMENT_PROCESSING_MODE == "sqs" and config.STORAGE_BACKEND != "s3":
         raise HTTPException(
             status_code=500,
             detail=(
@@ -244,7 +245,8 @@ async def enqueue_pdf_processing(
             document_id=document_id,
         )
 
-        message_id = queue_service.send_document_job(
+        message_id = await run_in_threadpool(
+            queue_service.send_document_job,
             job_id=job_id,
             session_id=session_id,
             document_id=document_id,
@@ -261,7 +263,8 @@ async def enqueue_pdf_processing(
                 "uploaded_filename": uploaded_filename,
                 "storage_backend": config.STORAGE_BACKEND,
                 "processing_mode": config.DOCUMENT_PROCESSING_MODE,
-                "sqs_message_id": message_id,
+                "queue_message_id": message_id,
+                **({"sqs_message_id": message_id} if config.DOCUMENT_PROCESSING_MODE == "sqs" else {}),
                 "message": "PDF accepted and queued for processing.",
             },
         )

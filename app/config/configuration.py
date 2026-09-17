@@ -61,15 +61,25 @@ class Config:
             )
 
         # Document processing can remain synchronous for regression testing or
-        # use SQS for asynchronous worker-based processing.
+        # use Kafka or SQS for asynchronous worker-based processing.
         self.DOCUMENT_PROCESSING_MODE = os.getenv(
             "DOCUMENT_PROCESSING_MODE",
             "sync",
         ).strip().lower()
-        if self.DOCUMENT_PROCESSING_MODE not in {"sync", "sqs"}:
+        if self.DOCUMENT_PROCESSING_MODE not in {"sync", "sqs", "kafka"}:
             raise ValueError(
-                "DOCUMENT_PROCESSING_MODE must be either 'sync' or 'sqs'"
+                "DOCUMENT_PROCESSING_MODE must be sync, sqs, or kafka"
             )
+
+        self.KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+        self.KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "document-processing")
+        self.KAFKA_DLQ_TOPIC = os.getenv("KAFKA_DLQ_TOPIC", "document-processing-dlq")
+        self.KAFKA_GROUP_ID = os.getenv("KAFKA_GROUP_ID", "document-workers")
+        self.KAFKA_MAX_ATTEMPTS = int(os.getenv("KAFKA_MAX_ATTEMPTS", "3"))
+        if not 1 <= self.KAFKA_MAX_ATTEMPTS <= 10:
+            raise ValueError("KAFKA_MAX_ATTEMPTS must be between 1 and 10")
+        if self.KAFKA_TOPIC == self.KAFKA_DLQ_TOPIC:
+            raise ValueError("Kafka input and dead-letter topics must be different")
 
         self.SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL", "").strip()
         self.SQS_QUEUE_NAME = os.getenv(
